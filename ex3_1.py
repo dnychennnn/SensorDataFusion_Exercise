@@ -1,8 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-from matplotlib.patches import FancyArrowPatch
-from mpl_toolkits.mplot3d import proj3d
+from mpl_toolkits.mplot3d import Axes3D, proj3d
+from matplotlib.patches import FancyArrowPatch, Circle
+import mpl_toolkits.mplot3d.art3d as art3d
+
 
 
 # from `https://stackoverflow.com/questions/35020256/python-plotting-velocity-and-acceleration-vectors-at-certain-points`
@@ -123,6 +124,38 @@ def cartesian_proj_transform(measurements, r_s):
     return (z_x, z_y, 0)
 
 
+'''
+Kalman Filter
+'''
+
+class KalmanFilter(object):
+    def __init__(self, Lambda, sigma_p, Phi, sigma_m):
+        self.Lambda = Lambda
+        self.sigma_p = sigma_p
+        self.Phi = Phi
+        self.sigma_m = sigma_m
+        self.state = None
+        self.convariance = None
+
+    def init(self, init_state):
+        self.state = init_state
+        self.convariance = np.eye(init_state.shape[0]) * 0.01
+
+    def track(self, xt):
+        
+        pred_state =  self.Lambda @ self.state.T
+        pred_covariance = self.sigma_p + self.Lambda @ self.convariance @ self.Lambda.T
+        kalman_gain = pred_covariance @ self.Phi.T @ np.linalg.inv(self.sigma_m + self.Phi @ (pred_covariance @ self.Phi.T))
+
+        ##debug
+        update_state = pred_state + kalman_gain @ (xt - self.Phi @ pred_state)
+        update_covariance = (np.identity(kalman_gain.shape[0]) - kalman_gain @ self.Phi) @ pred_covariance
+        self.state = update_state
+        self.convariance = update_covariance
+        pass
+
+    def get_current_location(self):
+        return self.Phi @ self.state
 
 
 if __name__ == "__main__":
@@ -137,40 +170,83 @@ if __name__ == "__main__":
     timesteps = np.linspace(0, a_x/v, 1000)
 
     axes.plot(rx(timesteps), ry(timesteps), rz(timesteps))
+
+    # Kalman Filter Initialization
+    init_state = np.array([rx(0), ry(0), vx(0), vy(0)])
+
+    print(init_state)
+
+    dt = 1
+    Lambda = np.array([[1, 0, dt , 0], [0, 1, 0, dt], [0, 0, 1, 0], [0, 0, 0,1]])
+
+    sp = 0.01
+    sigma_p = np.array([[sp, 0, 0, 0],
+                        [0, sp, 0, 0],
+                        [0, 0, sp * 4, 0],
+                        [0, 0, 0, sp * 4]])
+
+    Phi = np.array([[1, 0, 0, 0], [0, 1, 0, 0]]) 
+
+    sm = 0.05
+    sigma_m = np.array([[sm, 0], [0, sm]])
+
+    tracker = KalmanFilter(Lambda, sigma_p, Phi, sigma_m)
+    tracker.init(init_state)
+
     
 
     ### plot arrows
-    t_step = 100
+    t_step = 10
     scale_v = 0.01
     scale_a = 0.001
+
+    ### track
+    track = []
+    
     for t_pos in range(0, len(timesteps)-1, t_step):
         t_val_start = timesteps[t_pos]
-
+        
         vel_start = [rx(t_val_start), ry(t_val_start), rz(t_val_start)]
         vel_end = [rx(t_val_start)+vx(t_val_start)*scale_v, ry(t_val_start)+vy(t_val_start)*scale_v, rz(t_val_start)+vz(t_val_start)*scale_v] 
-        vel_vecs = list(zip(vel_start, vel_end))
-        vel_arrow = Arrow3D(vel_vecs[0],vel_vecs[1],vel_vecs[2], mutation_scale=20, lw=1, arrowstyle="-|>", color="g")
-        axes.add_artist(vel_arrow)
-
+        
         acc_start = [rx(t_val_start), ry(t_val_start), rz(t_val_start)]
         acc_end = [rx(t_val_start)+ax(t_val_start)*scale_a, ry(t_val_start)+ay(t_val_start)*scale_a, rz(t_val_start)+az(t_val_start)*scale_a]
-        acc_vecs = list(zip(acc_start, acc_end))
-        acc_arrow = Arrow3D(acc_vecs[0],acc_vecs[1],acc_vecs[2], mutation_scale=20, lw=1, arrowstyle="-|>", color="m")
-        axes.add_artist(acc_arrow)
+       
+        if (t_pos) % 100 == 0:
+
+            vel_vecs = list(zip(vel_start, vel_end))
+            vel_arrow = Arrow3D(vel_vecs[0],vel_vecs[1],vel_vecs[2], mutation_scale=20, lw=1, arrowstyle="-|>", color="g")
+            axes.add_artist(vel_arrow)
+
+            acc_vecs = list(zip(acc_start, acc_end))
+            acc_arrow = Arrow3D(acc_vecs[0],acc_vecs[1],acc_vecs[2], mutation_scale=20, lw=1, arrowstyle="-|>", color="m")
+            axes.add_artist(acc_arrow)
 
 
-        ### plot radar measurements
-        z1, z2 = compute_measurements(vel_start)
-        z1_xy = cartesian_proj_transform(z1, radar1)
-        z2_xy = cartesian_proj_transform(z2, radar2)
+            ### get current measurements and transformation
+            z1, z2 = compute_measurements(vel_start)
+            z1_xy = cartesian_proj_transform(z1, radar1)
+            z2_xy = cartesian_proj_transform(z2, radar2)
 
-        axes.scatter(*z1_xy, c='b')
-        axes.scatter(*z2_xy, c='g')
+            ### plot radar measurements 
+            axes.scatter(*z1_xy, c='b')
+            axes.scatter(*z2_xy, c='g')
+
+            ### Kalman Filter Tracker
+
+        
+        
+            tracker.track(np.asarray(z1_xy)[:2]) 
+            estimation = tracker.get_current_location()
+            track.append(estimation)
+            p = Circle((estimation[0], estimation[1]), .2, color='red', fill=False)
+            axes.add_patch(p)
+            art3d.pathpatch_2d_to_3d(p, z=0)
 
 
     axes.set_xlim3d(0, 10)
     axes.set_ylim3d(-1,1)
-    axes.set_zlim3d(0,1)
+    # axes.set_zlim3d(0,1)
 
     plt.show(block=False)
 
