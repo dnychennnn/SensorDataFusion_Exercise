@@ -104,7 +104,7 @@ def compute_measurements(gt):
     sigma = .1
 
     z1_r = np.sqrt((gt[0]-radar1[0])**2 + (gt[1]-radar1[1])**2 + (gt[2]-radar1[2])**2 - radar1[2]**2) +   lambda_r * np.random.normal(mu, sigma)
-    z1_phi = np.arctan( (gt[1]-radar1[1]) / (gt[0]-radar1[0]) ) + lambda_phi * np.random.normal(mu, sigma)
+    z1_phi = np.arctan( (gt[1]-radar1[1]) / (gt[0]-radar1[0] + 0.00001) ) + lambda_phi * np.random.normal(mu, sigma)
 
     z2_r = np.sqrt((gt[0]-radar2[0])**2 + (gt[1]-radar2[1])**2 + (gt[2]-radar2[2])**2 - radar2[2]**2) +   lambda_r * np.random.normal(mu, sigma)
     z2_phi = np.arctan( (gt[1]-radar2[1]) / (gt[0]-radar2[0]) ) + lambda_phi * np.random.normal(mu, sigma)
@@ -167,25 +167,34 @@ if __name__ == "__main__":
     axes.set_ylabel('Y')
     axes.set_zlabel('Z')
         
-    timesteps = np.linspace(0, a_x/v, 1000)
+    # make delta T = 2s
+    timesteps = np.linspace(0, a_x/v, 900) 
 
     axes.plot(rx(timesteps), ry(timesteps), rz(timesteps))
 
     # Kalman Filter Initialization
-    init_state = np.array([rx(0), ry(0), vx(0), vy(0)])
+    
+    init_state = np.array([rx(0), ry(0), rz(0), vx(0), vy(0), vz(0)])
 
-    print(init_state)
+    
 
-    dt = 1
-    Lambda = np.array([[1, 0, dt , 0], [0, 1, 0, dt], [0, 0, 1, 0], [0, 0, 0,1]])
+    dt = 1 / 1800
+    Lambda = np.array([[1, 0, 0, dt, 0 , 0], 
+                        [0, 1, 0, 0, dt, 0], 
+                        [0, 0, 1, 0, 0, dt], 
+                        [0, 0, 0, 1, 0, 0], 
+                        [0, 0, 0, 0, 1, 0], 
+                        [0, 0, 0, 0, 0, 1]])
 
     sp = 0.01
-    sigma_p = np.array([[sp, 0, 0, 0],
-                        [0, sp, 0, 0],
-                        [0, 0, sp * 4, 0],
-                        [0, 0, 0, sp * 4]])
+    sigma_p = np.array([[sp, 0, 0, 0, 0, 0],
+                        [0, sp, 0, 0, 0, 0],  
+                        [0, 0, sp * 4, 0, 0, 0],
+                        [0, 0, 0, sp * 4, 0, 0],
+                        [0, 0, 0, 0, sp * 8, 0],
+                        [0, 0, 0, 0, 0, sp*8]])
 
-    Phi = np.array([[1, 0, 0, 0], [0, 1, 0, 0]]) 
+    Phi = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0]]) 
 
     sm = 0.05
     sigma_m = np.array([[sm, 0], [0, sm]])
@@ -233,10 +242,7 @@ if __name__ == "__main__":
             axes.scatter(*z2_xy, c='g')
 
             ### Kalman Filter Tracker
-
-        
-        
-            tracker.track(np.asarray(z1_xy)[:2]) 
+            tracker.track(np.asarray(z1_xy)[:2].T) 
             estimation = tracker.get_current_location()
             track.append(estimation)
             p = Circle((estimation[0], estimation[1]), .2, color='red', fill=False)
