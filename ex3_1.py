@@ -29,9 +29,9 @@ a_x = 10
 radar1 = [0, 100, 10]
 radar2 = [100, 0, 10]
 # range(km)
-lambda_r = 0.01
+sigma_r = 0.01
 # azimuth(degree)
-lambda_phi = 0.1 
+sigma_phi = 0.1 
 
 
 # Helper functions
@@ -103,11 +103,11 @@ def compute_measurements(gt):
     mu = 0
     sigma = .1
 
-    z1_r = np.sqrt((gt[0]-radar1[0])**2 + (gt[1]-radar1[1])**2 + (gt[2]-radar1[2])**2 - radar1[2]**2) +   lambda_r * np.random.normal(mu, sigma)
-    z1_phi = np.arctan( (gt[1]-radar1[1]) / (gt[0]-radar1[0] + 0.00001) ) + lambda_phi * np.random.normal(mu, sigma)
+    z1_r = np.sqrt((gt[0]-radar1[0])**2 + (gt[1]-radar1[1])**2 + (gt[2]-radar1[2])**2 - radar1[2]**2) +   sigma_r * np.random.normal(mu, sigma)
+    z1_phi = np.arctan( (gt[1]-radar1[1]) / (gt[0]-radar1[0] + 0.00001) ) + sigma_phi * np.random.normal(mu, sigma)
 
-    z2_r = np.sqrt((gt[0]-radar2[0])**2 + (gt[1]-radar2[1])**2 + (gt[2]-radar2[2])**2 - radar2[2]**2) +   lambda_r * np.random.normal(mu, sigma)
-    z2_phi = np.arctan( (gt[1]-radar2[1]) / (gt[0]-radar2[0]) ) + lambda_phi * np.random.normal(mu, sigma)
+    z2_r = np.sqrt((gt[0]-radar2[0])**2 + (gt[1]-radar2[1])**2 + (gt[2]-radar2[2])**2 - radar2[2]**2) +   sigma_r * np.random.normal(mu, sigma)
+    z2_phi = np.arctan( (gt[1]-radar2[1]) / (gt[0]-radar2[0]) ) + sigma_phi * np.random.normal(mu, sigma)
 
 
     return (z1_r, z1_phi), (z2_r, z2_phi)
@@ -186,18 +186,25 @@ if __name__ == "__main__":
                         [0, 0, 0, 0, 1, 0], 
                         [0, 0, 0, 0, 0, 1]])
 
-    sp = 0.01
-    sigma_p = np.array([[sp, 0, 0, 0, 0, 0],
-                        [0, sp, 0, 0, 0, 0],  
-                        [0, 0, sp * 4, 0, 0, 0],
-                        [0, 0, 0, sp * 4, 0, 0],
-                        [0, 0, 0, 0, sp * 8, 0],
-                        [0, 0, 0, 0, 0, sp*8]])
+ 
+    sigma_p = np.array([[dt*2, 0, 0, 0, 0, 0],
+                        [0, dt*2, 0, 0, 0, 0],  
+                        [0, 0, dt*2, 0, 0, 0],
+                        [0, 0, 0, dt*4, 0, 0],
+                        [0, 0, 0, 0, dt*4, 0],
+                        [0, 0, 0, 0, 0, dt*4]])
+
+    # sigma_p = np.array([[1/4 * (dt**4), 0, 0, 1/2*(dt**3), 0, 0],
+    #                     [0, 1/4 * (dt**4), 0, 0, 1/2*(dt**3), 0],  
+    #                     [0, 0, 1/4 * (dt**4), 0, 0, 1/2*(dt**3)],
+    #                     [1/2*(dt**3), 0, 0, dt**2, 0, 0],
+    #                     [0, 1/2*(dt**3), 0, 0, dt**2, 0],
+    #                     [0, 0, 1/2*(dt**3), 0, 0, dt**2]])
+
 
     Phi = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0]]) 
 
-    sm = 0.05
-    sigma_m = np.array([[sm, 0], [0, sm]])
+    sigma_m = np.array([[sigma_r**2, 0], [0, sigma_phi**2]])
 
     tracker = KalmanFilter(Lambda, sigma_p, Phi, sigma_m)
     tracker.init(init_state)
@@ -221,33 +228,35 @@ if __name__ == "__main__":
         acc_start = [rx(t_val_start), ry(t_val_start), rz(t_val_start)]
         acc_end = [rx(t_val_start)+ax(t_val_start)*scale_a, ry(t_val_start)+ay(t_val_start)*scale_a, rz(t_val_start)+az(t_val_start)*scale_a]
        
-        if (t_pos) % 100 == 0:
+        if (t_pos) % 10 == 0:
 
-            vel_vecs = list(zip(vel_start, vel_end))
-            vel_arrow = Arrow3D(vel_vecs[0],vel_vecs[1],vel_vecs[2], mutation_scale=20, lw=1, arrowstyle="-|>", color="g")
-            axes.add_artist(vel_arrow)
+            if t_pos % 100 ==0 :        
+                vel_vecs = list(zip(vel_start, vel_end))
+                vel_arrow = Arrow3D(vel_vecs[0],vel_vecs[1],vel_vecs[2], mutation_scale=20, lw=1, arrowstyle="-|>", color="g")
+                axes.add_artist(vel_arrow)
 
-            acc_vecs = list(zip(acc_start, acc_end))
-            acc_arrow = Arrow3D(acc_vecs[0],acc_vecs[1],acc_vecs[2], mutation_scale=20, lw=1, arrowstyle="-|>", color="m")
-            axes.add_artist(acc_arrow)
+                acc_vecs = list(zip(acc_start, acc_end))
+                acc_arrow = Arrow3D(acc_vecs[0],acc_vecs[1],acc_vecs[2], mutation_scale=20, lw=1, arrowstyle="-|>", color="m")
+                axes.add_artist(acc_arrow)
 
 
             ### get current measurements and transformation
             z1, z2 = compute_measurements(vel_start)
             z1_xy = cartesian_proj_transform(z1, radar1)
             z2_xy = cartesian_proj_transform(z2, radar2)
-
-            ### plot radar measurements 
-            axes.scatter(*z1_xy, c='b')
-            axes.scatter(*z2_xy, c='g')
+            if t_pos % 100 == 0:
+                ### plot radar measurements 
+                axes.scatter(*z1_xy, c='b')
+                axes.scatter(*z2_xy, c='g')
 
             ### Kalman Filter Tracker
             tracker.track(np.asarray(z1_xy)[:2].T) 
             estimation = tracker.get_current_location()
             track.append(estimation)
-            p = Circle((estimation[0], estimation[1]), .2, color='red', fill=False)
-            axes.add_patch(p)
-            art3d.pathpatch_2d_to_3d(p, z=0)
+            if t_pos % 50 ==0 :        
+                p = Circle((estimation[0], estimation[1]), .2, color='red', fill=False)
+                axes.add_patch(p)
+                art3d.pathpatch_2d_to_3d(p, z=0)
 
 
     axes.set_xlim3d(0, 10)
