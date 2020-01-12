@@ -16,7 +16,7 @@ class Arrow3D(FancyArrowPatch):
     def draw(self, renderer):
         xs3d, ys3d, zs3d = self._verts3d
         xs, ys, zs = proj3d.proj_transform(xs3d, ys3d, zs3d, renderer.M)
-        self.set_positions((xs[0], ys[0]), (xs[1], ys[1]    ))
+        self.set_positions((xs[0], ys[0]), (xs[1], ys[1]))
         FancyArrowPatch.draw(self, renderer)
 
 origin = np.zeros((3, 1))
@@ -107,10 +107,10 @@ def compute_measurements(gt):
     z1_phi = np.arctan( (gt[1]-radar1[1]) / (gt[0]-radar1[0] + 0.00001) ) + sigma_phi * np.random.normal(mu, sigma)
 
     z2_r = np.sqrt((gt[0]-radar2[0])**2 + (gt[1]-radar2[1])**2 + (gt[2]-radar2[2])**2 - radar2[2]**2) +   sigma_r * np.random.normal(mu, sigma)
-    z2_phi = np.arctan( (gt[1]-radar2[1]) / (gt[0]-radar2[0]) ) + sigma_phi * np.random.normal(mu, sigma)
+    z2_phi = np.arctan( (gt[1]-radar2[1]) / (gt[0]-radar2[0] + 0.00001) ) + sigma_phi * np.random.normal(mu, sigma)
 
 
-    return (z1_r, z1_phi), (z2_r, z2_phi)
+    return [z1_r, z1_phi], [z2_r, z2_phi]
 
 def cartesian_proj_transform(measurements, r_s):
     '''
@@ -121,7 +121,7 @@ def cartesian_proj_transform(measurements, r_s):
     z_x = z_r * np.cos(z_phi) + r_s[0]
     z_y = z_r * np.sin(z_phi) + r_s[1]
 
-    return (z_x, z_y, 0)
+    return [z_x, z_y, 0]
 
 
 '''
@@ -135,24 +135,38 @@ class KalmanFilter(object):
         self.Phi = Phi
         self.sigma_m = sigma_m
         self.state = None
-        self.convariance = None
+        self.covariance = None
 
     def init(self, init_state):
         self.state = init_state
-        self.convariance = np.eye(init_state.shape[0]) * 0.01
+        self.covariance = np.eye(init_state.shape[0]) * 0.01
 
     def track(self, xt):
         
         pred_state =  self.Lambda @ self.state.T
-        pred_covariance = self.sigma_p + self.Lambda @ self.convariance @ self.Lambda.T
+        pred_covariance = self.sigma_p + self.Lambda @ self.covariance @ self.Lambda.T
         kalman_gain = pred_covariance @ self.Phi.T @ np.linalg.inv(self.sigma_m + self.Phi @ (pred_covariance @ self.Phi.T))
 
         ##debug
         update_state = pred_state + kalman_gain @ (xt - self.Phi @ pred_state)
         update_covariance = (np.identity(kalman_gain.shape[0]) - kalman_gain @ self.Phi) @ pred_covariance
         self.state = update_state
-        self.convariance = update_covariance
+        self.covariance = update_covariance
         pass
+    
+    # what exactly is input state & cov? Maybe self.state, self.covariance
+    # need history of past states and covariances
+    # def retrodiction(self, timestep, state, cov):
+    #     past_state = states[timestep]
+    #     pred_past_state = self.Lambda @ pred_state.T
+    #     past_covariance = cov[timestep]
+    #     pred_past_covariance = self.sigma_p + self.Lambda @ past_covariance @ self.Lambda.T
+
+    #     W = past_covariance @ self.Lambda @ np.linalg.inv(pred_past_covariance)
+    #     retro_state = past_state + W @ (state - pred_past_state)
+    #     retro_cov = past_covariance + W  @ (cov - pred_past_covariance) @ W.T
+        
+    #     return retro_state, retro_cov
 
     def get_current_location(self):
         return self.Phi @ self.state
@@ -177,7 +191,7 @@ if __name__ == "__main__":
     init_state = np.array([rx(0), ry(0), rz(0), vx(0), vy(0), vz(0)])
 
     
-
+    
     dt = 1 / 1800
     Lambda = np.array([[1, 0, 0, dt, 0 , 0], 
                         [0, 1, 0, 0, dt, 0], 
@@ -185,31 +199,28 @@ if __name__ == "__main__":
                         [0, 0, 0, 1, 0, 0], 
                         [0, 0, 0, 0, 1, 0], 
                         [0, 0, 0, 0, 0, 1]])
-
+    
  
-    sigma_p = np.array([[dt*2, 0, 0, 0, 0, 0],
-                        [0, dt*2, 0, 0, 0, 0],  
-                        [0, 0, dt*2, 0, 0, 0],
-                        [0, 0, 0, dt*4, 0, 0],
-                        [0, 0, 0, 0, dt*4, 0],
-                        [0, 0, 0, 0, 0, dt*4]])
-
-    # sigma_p = np.array([[1/4 * (dt**4), 0, 0, 1/2*(dt**3), 0, 0],
-    #                     [0, 1/4 * (dt**4), 0, 0, 1/2*(dt**3), 0],  
-    #                     [0, 0, 1/4 * (dt**4), 0, 0, 1/2*(dt**3)],
-    #                     [1/2*(dt**3), 0, 0, dt**2, 0, 0],
-    #                     [0, 1/2*(dt**3), 0, 0, dt**2, 0],
-    #                     [0, 0, 1/2*(dt**3), 0, 0, dt**2]])
+    sigma_k = 100 
+    sigma_p = sigma_k**2 * np.array([[1/4 * (dt**4), 0, 0, 1/2*(dt**3), 0, 0],
+                                    [0, 1/4 * (dt**4), 0, 0, 1/2*(dt**3), 0],  
+                                    [0, 0, 1/4 * (dt**4), 0, 0, 1/2*(dt**3)],
+                                    [1/2*(dt**3), 0, 0, dt**2, 0, 0],
+                                    [0, 1/2*(dt**3), 0, 0, dt**2, 0],
+                                    [0, 0, 1/2*(dt**3), 0, 0, dt**2]])
+                    
 
 
     Phi = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0]]) 
 
     sigma_m = np.array([[sigma_r**2, 0], [0, sigma_phi**2]])
 
-    tracker = KalmanFilter(Lambda, sigma_p, Phi, sigma_m)
-    tracker.init(init_state)
-
+    # Init Kalman filter
+    tracker1 = KalmanFilter(Lambda, sigma_p, Phi, sigma_m)
+    tracker1.init(init_state)
     
+    tracker2 = KalmanFilter(Lambda, sigma_p, Phi, sigma_m)
+    tracker2.init(init_state)
 
     ### plot arrows
     t_step = 10
@@ -218,7 +229,7 @@ if __name__ == "__main__":
 
     ### track
     track = []
-    
+    alpha = 0
     for t_pos in range(0, len(timesteps)-1, t_step):
         t_val_start = timesteps[t_pos]
         
@@ -244,19 +255,33 @@ if __name__ == "__main__":
             z1, z2 = compute_measurements(vel_start)
             z1_xy = cartesian_proj_transform(z1, radar1)
             z2_xy = cartesian_proj_transform(z2, radar2)
+            z2_xy[0] = z2_xy[0]-190     
+            
+
             if t_pos % 100 == 0:
                 ### plot radar measurements 
                 axes.scatter(*z1_xy, c='b')
                 axes.scatter(*z2_xy, c='g')
 
-            ### Kalman Filter Tracker
-            tracker.track(np.asarray(z1_xy)[:2].T) 
-            estimation = tracker.get_current_location()
-            track.append(estimation)
+
+            ### Kalman Filter Tracker1
+            tracker1.track(np.asarray(z1_xy)[:2].T) 
+            estimation1 = tracker1.get_current_location()
+
+            tracker2.track(np.asarray(z2_xy)[:2].T)
+            estimation2 = tracker2.get_current_location()
+
+            track.append(estimation1)
             if t_pos % 50 ==0 :        
-                p = Circle((estimation[0], estimation[1]), .2, color='red', fill=False)
-                axes.add_patch(p)
-                art3d.pathpatch_2d_to_3d(p, z=0)
+                alpha+=0.05
+                p1 = Circle((estimation1[0], estimation1[1]), .2, color='red', fill=False, alpha=alpha)
+                axes.add_patch(p1)
+                art3d.pathpatch_2d_to_3d(p1, z=0)   
+
+                p2 = Circle((estimation2[0], estimation2[1]), .2, color='green', fill=False, alpha=alpha)
+                axes.add_patch(p2)
+                art3d.pathpatch_2d_to_3d(p2, z=0) 
+
 
 
     axes.set_xlim3d(0, 10)
