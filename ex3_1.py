@@ -20,7 +20,8 @@ class Arrow3D(FancyArrowPatch):
         FancyArrowPatch.draw(self, renderer)
 
 origin = np.zeros((3, 1))
-v = 20
+# change to second
+v = 20/3600
 a_y = 1
 a_z = 1
 a_x = 10
@@ -31,7 +32,7 @@ radar2 = [100, 0, 10]
 # range(km)
 sigma_r = 0.01
 # azimuth(degree)
-sigma_phi = 0.1 
+sigma_phi = 0.1 * np.pi/180
 
 
 # Helper functions
@@ -57,13 +58,13 @@ Ground Truth Generator
 def rx(t):
     return v*t
 def ry(t):
-    return a_y * np.sin((4*np.pi*v)/a_x *t)
+    return a_y * np.sin((4*np.pi*v*t)/a_x)
 def rz(t):
-    return a_z * np.sin((np.pi*v)/a_x * t)
+    return a_z * np.sin((np.pi*v* t)/a_x)
 
 # Velocity Vectors
 def vx(t):
-    return v*t/(t+0.000001)
+    return v*t/(t+1e-6)
 def vy(t):
     return (4*np.pi*v/a_x) *a_y*np.cos((4*np.pi*v)/a_x *t)               
 def vz(t):
@@ -71,7 +72,7 @@ def vz(t):
 
 # Acceleration Vectors
 def ax(t):
-    return 0*t/(t+0.0000001)
+    return 0*t/(t+1e-6)
 
 def ay(t):
     return -(4*np.pi*v/a_x)**2 *a_y*np.sin((4*np.pi*v)/a_x *t)
@@ -80,7 +81,7 @@ def az(t):
     return -(np.pi*v/a_x)**2 *a_z*np.sin((np.pi*v)/a_x *t)
 
 # Tangential Unit Vectors
-def t(vx, vy, vz):
+def Tangential(vx, vy, vz):
    
     V = make_matrix(vx, vy, vz)
     norm = np.linalg.norm(V, axis=0)
@@ -93,7 +94,6 @@ def t(vx, vy, vz):
 Sensor Simulator
 '''
 
-
 def compute_measurements(gt):
 
     '''
@@ -101,14 +101,12 @@ def compute_measurements(gt):
     '''
 
     mu = 0
-    sigma = .1
+    sigma = 1
+    z1_r = np.sqrt((gt[0]-radar1[0])**2 + (gt[1]-radar1[1])**2 + (gt[2]-radar1[2])**2 - radar1[2]**2) + sigma_r * np.random.normal(0, 1)
+    z1_phi = np.arctan2((gt[1]-radar1[1]) , (gt[0]-radar1[0])) + sigma_phi * np.random.normal(0, 1)
 
-    z1_r = np.sqrt((gt[0]-radar1[0])**2 + (gt[1]-radar1[1])**2 + (gt[2]-radar1[2])**2 - radar1[2]**2) +   sigma_r * np.random.normal(mu, sigma)
-    z1_phi = np.arctan( (gt[1]-radar1[1]) / (gt[0]-radar1[0] + 0.00001) ) + sigma_phi * np.random.normal(mu, sigma)
-
-    z2_r = np.sqrt((gt[0]-radar2[0])**2 + (gt[1]-radar2[1])**2 + (gt[2]-radar2[2])**2 - radar2[2]**2) +   sigma_r * np.random.normal(mu, sigma)
-    z2_phi = np.arctan( (gt[1]-radar2[1]) / (gt[0]-radar2[0] + 0.00001) ) + sigma_phi * np.random.normal(mu, sigma)
-
+    z2_r = np.sqrt((gt[0]-radar2[0])**2 + (gt[1]-radar2[1])**2 + (gt[2]-radar2[2])**2 - radar2[2]**2) + sigma_r * np.random.normal(0, 1)
+    z2_phi = np.arctan2((gt[1]-radar2[1]) , (gt[0]-radar2[0])) + sigma_phi * np.random.normal(0, 1)
 
     return [z1_r, z1_phi], [z2_r, z2_phi]
 
@@ -121,7 +119,14 @@ def cartesian_proj_transform(measurements, r_s):
     z_x = z_r * np.cos(z_phi) + r_s[0]
     z_y = z_r * np.sin(z_phi) + r_s[1]
 
-    return [z_x, z_y, 0]
+    D = np.array([[np.cos(z_phi),-np.sin(z_phi)], [np.sin(z_phi),np.cos(z_phi)]])
+    L = np.array([[sigma_r**2 , 0], [0, (z_r * sigma_phi)**2]])
+
+    R = D @ L @ D.T
+
+
+
+    return np.array([z_x, z_y]), R
 
 
 '''
@@ -152,8 +157,10 @@ class KalmanFilter(object):
         update_covariance = (np.identity(kalman_gain.shape[0]) - kalman_gain @ self.Phi) @ pred_covariance
         self.state = update_state
         self.covariance = update_covariance
-        pass
-    
+
+    def update_R(self, R):
+        self.sigma_m = R
+
     # what exactly is input state & cov? Maybe self.state, self.covariance
     # need history of past states and covariances
     # def retrodiction(self, timestep, state, cov):
@@ -175,24 +182,24 @@ class KalmanFilter(object):
 if __name__ == "__main__":
 
 
-    fig = plt.figure(num='Task3')
+    fig = plt.figure(num='Task4.1 Trajectory and Measurements')
     axes = fig.gca(projection='3d')
     axes.set_xlabel('X')
     axes.set_ylabel('Y')
     axes.set_zlabel('Z')
         
     # make delta T = 2s
-    timesteps = np.linspace(0, a_x/v, 900) 
-
-    axes.plot(rx(timesteps), ry(timesteps), rz(timesteps))
+    dt = 2
+    timesteps = np.arange(0, a_x/v+1, dt) 
+    axes.plot(rx(timesteps), ry(timesteps), rz(timesteps), label="Trajectory")
 
     # Kalman Filter Initialization
     
-    init_state = np.array([rx(0), ry(0), rz(0), vx(0), vy(0), vz(0)])
+    init_state = np.array([0,0,0,0,0,0])
 
     
     
-    dt = 1 / 1800
+    
     Lambda = np.array([[1, 0, 0, dt, 0 , 0], 
                         [0, 1, 0, 0, dt, 0], 
                         [0, 0, 1, 0, 0, dt], 
@@ -201,7 +208,7 @@ if __name__ == "__main__":
                         [0, 0, 0, 0, 0, 1]])
     
  
-    sigma_k = 100 
+    sigma_k = 1
     sigma_p = sigma_k**2 * np.array([[1/4 * (dt**4), 0, 0, 1/2*(dt**3), 0, 0],
                                     [0, 1/4 * (dt**4), 0, 0, 1/2*(dt**3), 0],  
                                     [0, 0, 1/4 * (dt**4), 0, 0, 1/2*(dt**3)],
@@ -213,35 +220,43 @@ if __name__ == "__main__":
 
     Phi = np.array([[1, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0]]) 
 
-    sigma_m = np.array([[sigma_r**2, 0], [0, sigma_phi**2]])
+    # sigma_m = np.array([[sigma_r**2, 0], [0, sigma_phi**2]])
+    sigma_m = np.array([[10.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+              [0.0, 10.0, 0.0, 0.0, 0.0, 0.0],
+              [0.0, 0.0, 10.0, 0.0, 0.0, 0.0],
+              [0.0, 0.0, 0.0, 10.0, 0.0, 0.0],
+              [0.0, 0.0, 0.0, 0.0, 10.0, 0.0],
+              [0.0, 0.0, 0.0, 0.0, 0.0, 10.0]])
 
     # Init Kalman filter
-    tracker1 = KalmanFilter(Lambda, sigma_p, Phi, sigma_m)
-    tracker1.init(init_state)
-    
-    tracker2 = KalmanFilter(Lambda, sigma_p, Phi, sigma_m)
-    tracker2.init(init_state)
+    tracker = KalmanFilter(Lambda, sigma_p, Phi, sigma_m)
+    tracker.init(init_state)
+  
+    # store measurements
+    list_z1 = []
+    list_z2 = []
+    list_z = []
 
     ### plot arrows
     t_step = 10
-    scale_v = 0.01
-    scale_a = 0.001
-
+    
+    scale_v = 50
+    scale_a = 9000
     ### track
     track = []
     alpha = 0
-    for t_pos in range(0, len(timesteps)-1, t_step):
-        t_val_start = timesteps[t_pos]
+    for t in timesteps:
+        t_val_start = t
         
         vel_start = [rx(t_val_start), ry(t_val_start), rz(t_val_start)]
         vel_end = [rx(t_val_start)+vx(t_val_start)*scale_v, ry(t_val_start)+vy(t_val_start)*scale_v, rz(t_val_start)+vz(t_val_start)*scale_v] 
-        
         acc_start = [rx(t_val_start), ry(t_val_start), rz(t_val_start)]
         acc_end = [rx(t_val_start)+ax(t_val_start)*scale_a, ry(t_val_start)+ay(t_val_start)*scale_a, rz(t_val_start)+az(t_val_start)*scale_a]
        
-        if (t_pos) % 10 == 0:
-
-            if t_pos % 100 ==0 :        
+        if t % 20 == 0:
+            
+            # plot velocity and acceleration arrows
+            if t % 100 ==0 :        
                 vel_vecs = list(zip(vel_start, vel_end))
                 vel_arrow = Arrow3D(vel_vecs[0],vel_vecs[1],vel_vecs[2], mutation_scale=20, lw=1, arrowstyle="-|>", color="g")
                 axes.add_artist(vel_arrow)
@@ -251,48 +266,69 @@ if __name__ == "__main__":
                 axes.add_artist(acc_arrow)
 
 
-            ### get current measurements and transformation
-            z1, z2 = compute_measurements(vel_start)
-            z1_xy = cartesian_proj_transform(z1, radar1)
-            z2_xy = cartesian_proj_transform(z2, radar2)
-            z2_xy[0] = z2_xy[0]-190     
-            
+        ### get current measurements and transformation
+    
+        z1, z2 = compute_measurements(vel_start)
+        z1_xy, z1_R = cartesian_proj_transform(z1, radar1)
+        
+        z2_xy, z2_R = cartesian_proj_transform(z2, radar2)   
+        list_z1.append([z1_xy[0],z1_xy[1],0])
+        list_z2.append([z2_xy[0],z2_xy[1],0])
 
-            if t_pos % 100 == 0:
-                ### plot radar measurements 
-                axes.scatter(*z1_xy, c='b')
-                axes.scatter(*z2_xy, c='g')
-
-
-            ### Kalman Filter Tracker1
-            tracker1.track(np.asarray(z1_xy)[:2].T) 
-            estimation1 = tracker1.get_current_location()
-
-            tracker2.track(np.asarray(z2_xy)[:2].T)
-            estimation2 = tracker2.get_current_location()
-
-            track.append(estimation1)
-            if t_pos % 50 ==0 :        
-                alpha+=0.05
-                p1 = Circle((estimation1[0], estimation1[1]), .2, color='red', fill=False, alpha=alpha)
-                axes.add_patch(p1)
-                art3d.pathpatch_2d_to_3d(p1, z=0)   
-
-                p2 = Circle((estimation2[0], estimation2[1]), .2, color='green', fill=False, alpha=alpha)
-                axes.add_patch(p2)
-                art3d.pathpatch_2d_to_3d(p2, z=0) 
+        # Fuse two radar
+        z_R = np.linalg.inv(np.linalg.inv(z1_R) + np.linalg.inv(z2_R)) 
+        z_k = z_R @ (np.linalg.inv(z1_R) @ z1_xy.T + np.linalg.inv(z2_R) @ z2_xy.T) 
+        list_z.append([z_k[0],z_k[1],0])
+        
+        tracker.update_R(z_R)
+        
 
 
 
-    axes.set_xlim3d(0, 10)
-    axes.set_ylim3d(-1,1)
-    # axes.set_zlim3d(0,1)
+        ### Kalman Filter Tracker
+        tracker.track(z_k) 
+        estimation = tracker.get_current_location()
+        track.append(estimation)
+       
+        if t % 20 ==0 :        
+            alpha+=0.01
 
+            p = Circle((estimation[0], estimation[1]), .2, color='red', fill=False, alpha=alpha)
+            axes.add_patch(p)
+            art3d.pathpatch_2d_to_3d(p, z=0)   
+
+    ### plot radar measurements 
+    list_z1 = np.array(list_z1)
+    list_z2 = np.array(list_z2)
+    list_z = np.array(list_z)
+    
+    # axes.plot(list_z1[:,0], list_z1[:,1], list_z1[:,2], label='Radar1 measurements')
+    # axes.plot(list_z2[:,0], list_z2[:,1], list_z2[:,2], label='Radar2 measurements')
+    # axes.plot(list_z[:,0], list_z[:,1], c='g', label='Radar fusion')
+
+    plt.legend()
+    plt.show(block=False)
+
+
+    # Compare and plot two measurements
+    plt.figure(num='Measurements')
+    plt.plot(list_z1[:,0], list_z1[:,1], label='z1')
+    plt.plot(list_z2[:,0], list_z2[:,1], label='z2')
+    plt.legend()
+    plt.show(block=False)
+
+
+
+    plt.figure(num='Task 4.2 Fused Measurements V.S. Kalman Filter')
+    track = np.asarray(track)   
+    plt.plot(list_z[:,0], list_z[:,1], label='Radar fusion')
+    plt.plot(track[:,0], track[:,1], label='Tracking')
+    plt.legend()
     plt.show(block=False)
 
 
     ## calculate tangential vectors
-    tangential_vecs = t(vx(timesteps), vy(timesteps), vz(timesteps))
+    tangential_vecs = Tangential(vx(timesteps), vy(timesteps), vz(timesteps))
 
 
     ## Task 3.1.4
@@ -300,9 +336,6 @@ if __name__ == "__main__":
     norm_a = norm(ax(timesteps), ay(timesteps), az(timesteps))
     
     A = make_matrix(ax(timesteps), ay(timesteps), az(timesteps))
-
-    
-    Mult = A * tangential_vecs
     product = np.sum(A * tangential_vecs, axis=0)
 
     plt.figure(num='Task 4')
