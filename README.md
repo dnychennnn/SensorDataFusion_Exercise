@@ -7,11 +7,11 @@ python main.py
 ```
 
 ### Results
-- Car moving model simulation
+- Car moving model simulation \
 ![results/Simulation_of_model.png](results/Simulation_of_model.png)
-- Cartesian X-Y radar measurements
+- Cartesian X-Y radar measurements \
 ![results/Measurements_of_each_radar_(Ex._4.1.2).png](results/Measurements_of_each_radar_(Ex._4.1.2).png)
-- Kalman Filter
+- Kalman Filter \
 ![results/Comparison_with_Kalman_Filter.png](results/Comparison_with_Kalman_Filter.png)
-- Retrodiction
+- Retrodiction \
 ![results/Retrodiction.png](results/Retrodiction.png)
